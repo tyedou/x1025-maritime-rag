@@ -10,13 +10,25 @@ import shutil
 import sys
 from pathlib import Path
 
-import torch
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import AcceleratorDevice, AcceleratorOptions, PdfPipelineOptions
 from docling_core.types.doc import ImageRefMode
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+def _patch_layout_predictor():
+    # docling-ibm-models passes torch.device to device_map= instead of a string,
+    # causing transformers to silently keep weights on CPU while inputs go to CUDA.
+    import docling_ibm_models.layoutmodel.layout_predictor as lp
+    original_init = lp.LayoutPredictor.__init__
+    def patched_init(self, artifact_path, device="cpu", num_threads=4):
+        original_init(self, artifact_path, device=device, num_threads=num_threads)
+        if "cuda" in str(self._device):
+            self._model = self._model.to(self._device)
+    lp.LayoutPredictor.__init__ = patched_init
+
+_patch_layout_predictor()
 
 _IMAGE_RE = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 _NAV_EXACT = frozenset({"PREVIOUS PAGE", "NEXT PAGE", "EXIT PAGE", "CONTENTS LIST", "PREVIOUS", "NEXT", "CONTENTS", "EXIT"})
@@ -31,7 +43,7 @@ def process_pdf(pdf_path: Path, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     
     opts = PdfPipelineOptions()
-    opts.accelerator_options = AcceleratorOptions(device=AcceleratorDevice.CUDA if torch.cuda.is_available() else AcceleratorDevice.CPU)
+    opts.accelerator_options = AcceleratorOptions(device=AcceleratorDevice.CUDA)
     opts.do_ocr = False
     opts.do_table_structure = True
     opts.generate_picture_images = True
