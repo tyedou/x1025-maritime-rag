@@ -34,7 +34,8 @@ def patch_nvembed():
     for p in glob.glob(os.path.join(os.environ["HF_HOME"], "modules/transformers_modules/nvidia/NV-Embed-v2/*/modeling_nvembed.py")):
         with open(p, "r+") as f:
             t = f.read()
-            if "position_embeddings = self.rotary_emb" in t and "clone().detach()" in t: return
+            if "position_embeddings = self.rotary_emb" in t:
+                continue  # already patched
             t = t.replace("'input_ids': torch.tensor(batch_dict.get('input_ids').to(batch_dict.get('input_ids')).long()),", "'input_ids': batch_dict.get('input_ids').clone().detach().long(),")
             t = t.replace("        use_cache = use_cache if use_cache is not None else self.config.use_cache", "        use_cache = False")
             t = t.replace("        hidden_states = inputs_embeds\n\n        # decoder layers", "        hidden_states = inputs_embeds\n        position_embeddings = self.rotary_emb(hidden_states, position_ids)\n\n        # decoder layers")
@@ -43,6 +44,12 @@ def patch_nvembed():
             f.seek(0); f.write(t); f.truncate()
 
 def init_retriever(db_dir, table_name):
+    from transformers.dynamic_module_utils import get_cached_module_file
+    for fname in ["modeling_nvembed.py", "configuration_nvembed.py"]:
+        try:
+            get_cached_module_file("nvidia/NV-Embed-v2", fname)
+        except Exception:
+            pass
     patch_nvembed()
     embedder = AutoModel.from_pretrained("nvidia/NV-Embed-v2", trust_remote_code=True).half().cuda().eval()
     return embedder, lancedb.connect(str(db_dir)).open_table(table_name)

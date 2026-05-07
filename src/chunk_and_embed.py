@@ -40,30 +40,34 @@ SCHEMA = pa.schema([
 ])
 
 def patch_nvembed():
-    # Patch NV-Embed-v2 for compatibility with transformers >= 4.46
+    # Patch NV-Embed-v2 for compatibility with transformers >= 4.46.
+    # Must run AFTER code files are downloaded to transformers_modules cache.
     pattern = os.path.join(os.environ["HF_HOME"], "modules/transformers_modules/nvidia/NV-Embed-v2/*/modeling_nvembed.py")
     for p in glob.glob(pattern):
         with open(p, "r+") as f:
             t = f.read()
-            if "position_embeddings = self.rotary_emb" in t and "clone().detach()" in t: return
-            
-            # Patch tensor warning
+            if "position_embeddings = self.rotary_emb" in t:
+                continue  # already patched
             t = t.replace(
                 "'input_ids': torch.tensor(batch_dict.get('input_ids').to(batch_dict.get('input_ids')).long()),",
                 "'input_ids': batch_dict.get('input_ids').clone().detach().long(),"
             )
-            # Patch caching and decoder layout
             t = t.replace("        use_cache = use_cache if use_cache is not None else self.config.use_cache", "        use_cache = False")
             t = t.replace("        hidden_states = inputs_embeds\n\n        # decoder layers", "        hidden_states = inputs_embeds\n        position_embeddings = self.rotary_emb(hidden_states, position_ids)\n\n        # decoder layers")
             t = t.replace("                    output_attentions,\n                    use_cache,\n                )\n            else:", "                    output_attentions,\n                    use_cache,\n                    None,\n                    position_embeddings,\n                )\n            else:")
             t = t.replace("                    output_attentions=output_attentions,\n                    use_cache=use_cache,\n                )", "                    output_attentions=output_attentions,\n                    use_cache=use_cache,\n                    position_embeddings=position_embeddings,\n                )")
-            f.seek(0)
-            f.write(t)
-            f.truncate()
-
-patch_nvembed()
+            f.seek(0); f.write(t); f.truncate()
 
 def load_embed_model():
+    # Pre-download model code files to transformers_modules before patching,
+    # so patch_nvembed() always runs after the latest files are on disk.
+    from transformers.dynamic_module_utils import get_cached_module_file
+    for fname in ["modeling_nvembed.py", "configuration_nvembed.py"]:
+        try:
+            get_cached_module_file(MODEL_ID, fname)
+        except Exception:
+            pass
+    patch_nvembed()
     model = AutoModel.from_pretrained(MODEL_ID, trust_remote_code=True).half().cuda().eval()
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
     return model, tokenizer
