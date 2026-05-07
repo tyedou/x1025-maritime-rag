@@ -57,8 +57,8 @@ def retrieve_candidates(embedder, table, query, k=10):
     return results
 
 def init_reranker():
-    t = AutoTokenizer.from_pretrained("Qwen/Qwen3-Reranker-8B", trust_remote_code=True, padding_side="left")
-    m = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-Reranker-8B", torch_dtype=torch.float16, device_map="cuda:1" if torch.cuda.device_count() > 1 else "cuda:0").eval()
+    t = AutoTokenizer.from_pretrained("Qwen/Qwen3-Reranker-0.6B", trust_remote_code=True, padding_side="left")
+    m = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-Reranker-0.6B", torch_dtype=torch.float16, device_map="auto").eval()
     return m, t, t.convert_tokens_to_ids("yes"), t.convert_tokens_to_ids("no")
 
 def rerank_candidates(reranker, query, cands, top_n=5):

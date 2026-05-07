@@ -25,10 +25,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from retrieve import init_retriever, init_reranker, retrieve_candidates, rerank_candidates
 
-LLM_ID = "Qwen/Qwen3-30B-A3B"
+LLM_ID = "Qwen/Qwen3-8B"
 
-# Shard the model across available GPU devices based on free VRAM
-LLM_MAX_MEMORY = {0: "18GiB", 1: "10GiB", 2: "34GiB", 3: "34GiB"}
+LLM_MAX_MEMORY = {0: "28GiB"}
 
 LLM_MAX_NEW_TOKENS = 1024
 
@@ -47,11 +46,7 @@ SYSTEM_PROMPT = (
 
 
 def load_llm():
-    """
-    Load Qwen3-30B-A3B sharded across all 3 MIG slices using free VRAM.
-    Returns (model, tokenizer).
-    """
-    print(f"Loading {LLM_ID} (sharded across cuda:0/1/2/3) ...")
+    print(f"Loading {LLM_ID} ...")
     tok = AutoTokenizer.from_pretrained(LLM_ID, trust_remote_code=True)
     mdl = AutoModelForCausalLM.from_pretrained(
         LLM_ID,
@@ -59,9 +54,8 @@ def load_llm():
         device_map="auto",
         max_memory=LLM_MAX_MEMORY,
     ).eval()
-    for i in range(4):
-        used = torch.cuda.memory_allocated(i) / 1e9
-        print(f"  cuda:{i} allocated: {used:.1f} GB")
+    used = torch.cuda.memory_allocated(0) / 1e9
+    print(f"  cuda:0 allocated: {used:.1f} GB")
     return mdl, tok
 
 
