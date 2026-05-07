@@ -16,7 +16,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
-os.environ.setdefault("HF_HOME", "/tmp/hf_cache")
+os.environ.setdefault("HF_HOME", str(Path.home() / "hf_cache"))
 os.environ.setdefault("LANCE_LOG", "ERROR")
 warnings.filterwarnings("ignore", message=".*To copy construct from a tensor.*")
 warnings.filterwarnings("ignore", message=".*sdp_kernel.*")

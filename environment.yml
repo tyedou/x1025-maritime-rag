@@ -185,12 +185,9 @@ dependencies:
       - tilelang==0.1.9
       - timm==1.0.26
       - tokenizers==0.21.4
-      - torch==2.10.0+cu128
       - torch-c-dlpack-ext==0.1.5
-      - torchaudio==2.11.0+cu128
-      - torchvision==0.25.0+cu128
       - tqdm==4.67.3
-      - transformers==4.51.3
+      - transformers==4.52.0
       - tree-sitter==0.25.2
       - tree-sitter-c==0.24.2
       - tree-sitter-javascript==0.25.0

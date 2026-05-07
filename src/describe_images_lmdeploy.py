@@ -12,14 +12,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
-os.environ.setdefault("HF_HOME", "/tmp/hf_cache")
+os.environ.setdefault("HF_HOME", str(Path.home() / "hf_cache"))
 os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
 from lmdeploy import pipeline, TurbomindEngineConfig
 from lmdeploy.vl import load_image
 
-MODEL_ID = "OpenGVLab/InternVL2_5-38B-AWQ"
-MODEL_PATH = "/tmp/hf_cache/hub/models--OpenGVLab--InternVL2_5-38B-AWQ/snapshots/0f82b9397f2475eacc9c5176313718cf1f54e731"
+MODEL_ID = "OpenGVLab/InternVL2_5-8B"
+MODEL_PATH = MODEL_ID
 DEFAULT_OUT = Path(__file__).parent.parent.resolve() / "data"
 PROMPT = "You are analyzing a technical diagram from a ship's deck operating manual. Describe everything visible: system or subsystem shown, all equipment labels and instrument tags (e.g. PI-101, LT-202), valve types and states, pipe connections and flow directions, color codes for fluid types, and any text legible in the image. Be precise and comprehensive."
 REFUSALS = {"unable to analyze", "cannot analyze", "i cannot", "i am unable", "cannot provide", "i'm unable", "not able to", "i don't have the ability"}

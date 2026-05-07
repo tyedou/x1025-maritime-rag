@@ -17,10 +17,11 @@ import os
 import sys
 import warnings
 from pathlib import Path
+import time
 
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
-os.environ.setdefault("HF_HOME", "/tmp/hf_cache")
+os.environ.setdefault("HF_HOME", str(Path.home() / "hf_cache"))
 warnings.filterwarnings("ignore")
 
 import lancedb
@@ -47,10 +48,13 @@ def init_retriever(db_dir, table_name):
     return embedder, lancedb.connect(str(db_dir)).open_table(table_name)
 
 def retrieve_candidates(embedder, table, query, k=10):
+    t0 = time.perf_counter()
     with torch.no_grad():
         v = embedder.encode([query], instruction="Instruct: Given a technical question about a technical manual or report, retrieve the most relevant passages that answer the question.\nQuery: ", max_length=2048)
     v = F.normalize(v.float(), p=2, dim=1).cpu().tolist()[0] if isinstance(v, torch.Tensor) else v.tolist()[0]
-    return table.search(query_type="hybrid").vector(v).text(query).metric("cosine").rerank(RRFReranker(return_score="all")).limit(k).to_list()
+    results = table.search(query_type="hybrid").vector(v).text(query).metric("cosine").rerank(RRFReranker(return_score="all")).limit(k).to_list()
+    print(f"[RETRIEVAL] {time.perf_counter() - t0:.3f}s")
+    return results
 
 def init_reranker():
     t = AutoTokenizer.from_pretrained("Qwen/Qwen3-Reranker-8B", trust_remote_code=True, padding_side="left")
@@ -58,6 +62,7 @@ def init_reranker():
     return m, t, t.convert_tokens_to_ids("yes"), t.convert_tokens_to_ids("no")
 
 def rerank_candidates(reranker, query, cands, top_n=5):
+    t0 = time.perf_counter()
     m, t, y_id, n_id = reranker
     full_texts = [
         f'<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n<Instruct>: Given a technical question about a technical manual or report, assess whether the document contains relevant information to answer the question.\n<Query>: {query}\n<Document>: {c["text"]}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
@@ -72,6 +77,7 @@ def rerank_candidates(reranker, query, cands, top_n=5):
             batch_scrs = torch.nn.functional.log_softmax(torch.stack([lgts[:, n_id], lgts[:, y_id]], dim=1), dim=1)[:, 1].exp().cpu().tolist()
             scrs.extend(batch_scrs)
     for c, s in zip(cands, scrs): c["_rerank_score"] = s
+    print(f"[RERANKING] {time.perf_counter() - t0:.3f}s")
     return sorted(cands, key=lambda x: x["_rerank_score"], reverse=True)[:top_n]
 
 if __name__ == "__main__":
