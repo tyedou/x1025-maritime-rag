@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 import lancedb
+import torch
 from dotenv import load_dotenv
 from answer import load_llm, generate, RETRIEVE_K, RERANK_TOP
 from retrieve import init_retriever, init_reranker, retrieve_candidates, rerank_candidates
@@ -61,11 +62,14 @@ def execute_chat_loop(vector_embedder_model, lancedb_database_directory_string, 
                 break
 
             print("  Searching...", flush=True)
+            vector_embedder_model.cuda()
             initial_retrieved_passages = retrieve_candidates(vector_embedder_model, current_database_connection, user_query_string, k=RETRIEVE_K)
+            vector_embedder_model.cpu()
+            torch.cuda.empty_cache()
             print("  Reranking...", flush=True)
             final_reranked_passages = rerank_candidates(reranker_model_components, user_query_string, initial_retrieved_passages, top_n=RERANK_TOP)
             print("  Generating...\n", flush=True)
-            print(generate(causal_language_model, user_query_string, final_reranked_passages))
+            generate(causal_language_model, user_query_string, final_reranked_passages, stream=True)
 
 if __name__ == "__main__":
     lancedb_database_directory_string = "lancedb"
@@ -75,6 +79,8 @@ if __name__ == "__main__":
     print(f"\nLoading models and connecting to '{selected_manual_name_string}'...")
     dense_vector_embedder_model, _ = init_retriever(lancedb_database_directory_string, selected_manual_name_string)
     cross_encoder_reranker_model_components = init_reranker()
+    dense_vector_embedder_model.cpu()
+    torch.cuda.empty_cache()
     qwen_causal_language_model_components = load_llm()
     
     execute_chat_loop(dense_vector_embedder_model, lancedb_database_directory_string, cross_encoder_reranker_model_components, qwen_causal_language_model_components, available_manuals_list, selected_manual_name_string)

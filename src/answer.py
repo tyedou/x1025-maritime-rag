@@ -20,19 +20,20 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 if not os.environ.get("HF_HOME"): os.environ["HF_HOME"] = str(Path.home() / "hf_cache")
 
+import time
+from threading import Thread
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 from retrieve import init_retriever, init_reranker, retrieve_candidates, rerank_candidates
 
 LLM_ID = "Qwen/Qwen3-8B"
 
-LLM_MAX_MEMORY = {0: "28GiB"}
-
 LLM_MAX_NEW_TOKENS = 1024
 
-RETRIEVE_K  = 100   # hybrid candidates fetched before reranking
-RERANK_TOP  = 15    # chunks passed to the LLM as context
+RETRIEVE_K  = 100    # hybrid candidates fetched before reranking
+RERANK_TOP  = 15     # chunks passed to the LLM as context
 
 SYSTEM_PROMPT = (
     "You are a highly precise technical assistant.\n\n"
@@ -51,11 +52,10 @@ def load_llm():
     mdl = AutoModelForCausalLM.from_pretrained(
         LLM_ID,
         torch_dtype=torch.float16,
-        device_map="auto",
-        max_memory=LLM_MAX_MEMORY,
-    ).eval()
+    ).cuda().eval()
     used = torch.cuda.memory_allocated(0) / 1e9
     print(f"  cuda:0 allocated: {used:.1f} GB")
+    print(f"  LLM device: {next(mdl.parameters()).device}")
     return mdl, tok
 
 
@@ -82,10 +82,11 @@ def _build_messages(query: str, chunks: list[dict]) -> list[dict]:
     ]
 
 
-def generate(llm, query: str, chunks: list[dict]) -> str:
+def generate(llm, query: str, chunks: list[dict], stream: bool = False) -> str:
     """
     Generate an answer from the LLM given a query and reranked context chunks.
     Thinking mode is disabled (enable_thinking=False) for direct answers.
+    If stream=True, tokens are printed to stdout as they are generated.
     """
     model, tokenizer = llm
     messages = _build_messages(query, chunks)
@@ -96,25 +97,42 @@ def generate(llm, query: str, chunks: list[dict]) -> str:
         add_generation_prompt=True,
         enable_thinking=False,   # prepends <think></think> to skip reasoning phase
         return_tensors="pt",
-    ).to(model.device)
+    ).cuda()
 
     attention_mask = torch.ones_like(input_ids)
+    gen_kwargs = dict(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        max_new_tokens=LLM_MAX_NEW_TOKENS,
+        do_sample=False,
+        temperature=None,
+        top_p=None,
+        top_k=None,
+        pad_token_id=tokenizer.eos_token_id,
+    )
 
-    with torch.no_grad():
-        output_ids = model.generate(
-            input_ids,
-            attention_mask=attention_mask,
-            max_new_tokens=LLM_MAX_NEW_TOKENS,
-            do_sample=False,
-            temperature=None,
-            top_p=None,
-            top_k=None,
-            pad_token_id=tokenizer.eos_token_id,
-        )
+    t0 = time.perf_counter()
 
-    # Decode only the newly generated tokens (strip the input)
-    new_tokens = output_ids[0][input_ids.shape[-1]:]
-    response = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+    if stream:
+        streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+        gen_kwargs["streamer"] = streamer
+        thread = Thread(target=model.generate, kwargs=gen_kwargs)
+        thread.start()
+        response_parts = []
+        for token_text in streamer:
+            print(token_text, end="", flush=True)
+            response_parts.append(token_text)
+        print()  # newline after streamed output
+        thread.join()
+        response = "".join(response_parts)
+        n_tokens = len(tokenizer.encode(response))
+        print(f"[GENERATION] {time.perf_counter() - t0:.3f}s ({n_tokens} tokens)")
+    else:
+        with torch.no_grad():
+            output_ids = model.generate(**gen_kwargs)
+        new_tokens = output_ids[0][input_ids.shape[-1]:]
+        response = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        print(f"[GENERATION] {time.perf_counter() - t0:.3f}s ({len(new_tokens)} tokens)")
 
     # Strip any residual <think>...</think> block the model may emit
     if "<think>" in response:

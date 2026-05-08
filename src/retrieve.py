@@ -65,7 +65,8 @@ def retrieve_candidates(embedder, table, query, k=10):
 
 def init_reranker():
     t = AutoTokenizer.from_pretrained("Qwen/Qwen3-Reranker-0.6B", trust_remote_code=True, padding_side="left")
-    m = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-Reranker-0.6B", torch_dtype=torch.float16, device_map="auto").eval()
+    m = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-Reranker-0.6B", torch_dtype=torch.float16).cuda().eval()
+    print(f"  Reranker device: {next(m.parameters()).device}")
     return m, t, t.convert_tokens_to_ids("yes"), t.convert_tokens_to_ids("no")
 
 def rerank_candidates(reranker, query, cands, top_n=5):
@@ -76,11 +77,11 @@ def rerank_candidates(reranker, query, cands, top_n=5):
         for c in cands
     ]
     scrs = []
-    batch_size = 1
+    batch_size = 8
     for i in range(0, len(full_texts), batch_size):
-        pad = t(full_texts[i:i+batch_size], padding=True, truncation=True, max_length=2048, return_tensors="pt", add_special_tokens=False)
+        pad = t(full_texts[i:i+batch_size], padding=True, truncation=True, max_length=1024, return_tensors="pt", add_special_tokens=False)
         with torch.no_grad():
-            lgts = m(**{k: v.to(m.device) for k, v in pad.items()}).logits[:, -1, :]
+            lgts = m(**{k: v.cuda() for k, v in pad.items()}).logits[:, -1, :]
             batch_scrs = torch.nn.functional.log_softmax(torch.stack([lgts[:, n_id], lgts[:, y_id]], dim=1), dim=1)[:, 1].exp().cpu().tolist()
             scrs.extend(batch_scrs)
     for c, s in zip(cands, scrs): c["_rerank_score"] = s
