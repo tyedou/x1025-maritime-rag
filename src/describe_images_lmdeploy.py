@@ -12,7 +12,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
-os.environ.setdefault("HF_HOME", str(Path.home() / "hf_cache"))
+if not os.environ.get("HF_HOME"): os.environ["HF_HOME"] = str(Path.home() / "hf_cache")
 os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
 from lmdeploy import pipeline, TurbomindEngineConfig

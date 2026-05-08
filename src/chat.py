@@ -11,7 +11,7 @@ from answer import load_llm, generate, RETRIEVE_K, RERANK_TOP
 from retrieve import init_retriever, init_reranker, retrieve_candidates, rerank_candidates
 
 load_dotenv(Path(__file__).parent.parent / ".env")
-os.environ.setdefault("HF_HOME", str(Path.home() / "hf_cache"))
+if not os.environ.get("HF_HOME"): os.environ["HF_HOME"] = str(Path.home() / "hf_cache")
 
 def fetch_available_manual_names(database_directory_string):
     database_path_object = Path(database_directory_string)

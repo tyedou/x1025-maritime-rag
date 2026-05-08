@@ -21,7 +21,7 @@ import time
 
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
-os.environ.setdefault("HF_HOME", str(Path.home() / "hf_cache"))
+if not os.environ.get("HF_HOME"): os.environ["HF_HOME"] = str(Path.home() / "hf_cache")
 warnings.filterwarnings("ignore")
 
 import lancedb
